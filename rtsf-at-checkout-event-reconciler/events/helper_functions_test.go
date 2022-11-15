@@ -5,6 +5,7 @@ package events
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/edgexfoundry/go-mod-core-contracts/v2/dtos"
@@ -537,6 +538,138 @@ func TestEventsProcessor_unmarshalDtosObj(t *testing.T) {
 			require.NoError(t, err)
 			if err := eventsProcessing.unmarshalObjValue(testStruct.ObjectReading.ObjectValue, tt.instance); (err != nil) != tt.wantErr {
 				t.Errorf("EventsProcessor.unmarshalDtosObj() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEventsProcessor_wrapSuspectItems(t *testing.T) {
+	type fields struct {
+		currentCVData     []CVEventEntry
+		currentRFIDData   []RFIDEventEntry
+		suspectScaleItems map[int64]*ScaleEventEntry
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		want    []byte
+		wantErr bool
+	}{
+		{
+			name: "empty data",
+			fields: fields{
+				currentCVData:     []CVEventEntry{},
+				currentRFIDData:   []RFIDEventEntry{},
+				suspectScaleItems: make(map[int64]*ScaleEventEntry),
+			},
+			wantErr: false,
+			want: []byte(
+				`{
+					"cv_suspect_list": [],
+					"rfid_suspect_list": [],
+					"scale_suspect_list": {}
+				}`,
+			),
+		},
+		{
+			name: "1 cvd item in suspect list",
+			fields: fields{
+				currentCVData: []CVEventEntry{
+					{
+						ROIName:             "cherrios",
+						AssociatedRTTLEntry: nil,
+						ROIs:                map[string]ROILocation{},
+					},
+				},
+				currentRFIDData:   []RFIDEventEntry{},
+				suspectScaleItems: make(map[int64]*ScaleEventEntry),
+			},
+			wantErr: false,
+			want: []byte(
+				`{
+					"cv_suspect_list": [
+						{
+							"lane_id": "",
+							"product_name": "",
+							"roi_name": "cherrios",
+							"roi_action": "",
+							"event_time": 0,
+							"ROIs": {},
+							"AssociatedRTTLEntry": null
+						}
+					],
+					"rfid_suspect_list": [],
+					"scale_suspect_list": {}
+				}`,
+			),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventsProcessing := &EventsProcessor{
+				currentCVData:     tt.fields.currentCVData,
+				currentRFIDData:   tt.fields.currentRFIDData,
+				suspectScaleItems: tt.fields.suspectScaleItems,
+			}
+			got, err := eventsProcessing.wrapSuspectItems()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("EventsProcessor.wrapSuspectItems() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			gotMap := map[string]interface{}{}
+			err = json.Unmarshal(got, &gotMap)
+			require.NoError(t, err)
+			wantMap := map[string]interface{}{}
+			err = json.Unmarshal(tt.want, &wantMap)
+			require.NoError(t, err)
+			if !reflect.DeepEqual(gotMap, wantMap) {
+				t.Errorf("EventsProcessor.wrapSuspectItems() = %v, want %v", string(got), string(tt.want))
+			}
+		})
+	}
+}
+
+func TestEventsProcessor_getSuspectScaleItems(t *testing.T) {
+	type fields struct {
+		suspectScaleItems map[int64]*ScaleEventEntry
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   map[int64]*ScaleEventEntry
+	}{
+		{
+			name: "empty suspect list",
+			fields: fields{
+				suspectScaleItems: map[int64]*ScaleEventEntry{},
+			},
+			want: map[int64]*ScaleEventEntry{},
+		},
+		{
+			name: "1 item in suspect list",
+			fields: fields{
+				suspectScaleItems: map[int64]*ScaleEventEntry{
+					int64(0): {
+						LaneId: "isle 5",
+						Status: "testing",
+					},
+				},
+			},
+			want: map[int64]*ScaleEventEntry{
+				int64(0): {
+					LaneId: "isle 5",
+					Status: "testing",
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventsProcessing := &EventsProcessor{
+				suspectScaleItems: tt.fields.suspectScaleItems,
+			}
+			if got := eventsProcessing.getSuspectScaleItems(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("EventsProcessor.getSuspectScaleItems() = %v, want %v", got, tt.want)
 			}
 		})
 	}
